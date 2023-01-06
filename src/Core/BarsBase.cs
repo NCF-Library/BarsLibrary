@@ -2,38 +2,45 @@
 
 namespace BarsLibrary.Core
 {
-    public class BarsBase
+    public class BarsBase : Dictionary<string, Track>
     {
-        private readonly int[] UnknownTrackData;
-
         public Endian Endian { get; set; } = BitConverter.IsLittleEndian ? Endian.Little : Endian.Big;
-        public List<Amta> MetaData { get; set; }
 
         public BarsBase(CeadReader reader)
         {
             reader.CheckMagic("BARS"u8);
-            int fileSize = reader.ReadInt32();
-
-            // Read BOM
-            Endian = (Endian)reader.ReadInt16();
-            reader.Endian = Endian;
-
-            // Skip unknown data
-            reader.Seek(sizeof(short), SeekOrigin.Current); // always 0x0101 in botw
+            reader.Seek(sizeof(uint), SeekOrigin.Current); // File size
+            Endian = reader.ReadByteOrderMark();
+            reader.Seek(sizeof(short), SeekOrigin.Current); // Block size (0x0100)
             int trackCount = reader.ReadInt32();
-            UnknownTrackData = reader.ReadObjects(trackCount, 0, SeekOrigin.Current, reader.ReadInt32);
+            reader.Seek(trackCount * sizeof(uint), SeekOrigin.Current); // Hashed amta names for binary searches
+            uint[] offsets = reader.ReadObjects(trackCount * 2, reader.ReadUInt32); // Meta Data and Track offsets
 
-            // Read offsets
-            int[] offsets = reader.ReadObjects(trackCount, 0, SeekOrigin.Current, reader.ReadInt32);
+            // Read audio meta data
+            for (int i = 0; i < trackCount; i++) {
+                reader.Seek(offsets[i * 2], SeekOrigin.Begin);
+                Track track = new() {
+                    Meta = new(reader)
+                };
+                Add(track.Meta.Name, track);
 
-            // Read AMTA headers (sequentially)
-            MetaData = reader.ReadObjects<Amta>(trackCount, 0, SeekOrigin.Current).ToList();
+                // Reset reader endian (theoretically could
+                // be switch while reading the amta)
+                reader.Endian = Endian;
+            }
 
-            // Read tracks (sequentially?)
-            // ...
+            // Read tracks
+            int index = 0;
+            foreach ((var _, Track track) in this) {
+                long offset = offsets[index * 2 + 1];
+                if (offset == -1) {
+                    continue; // Meta data only
+                }
 
-            // Reset endian after reading AMTA blocks
-            reader.Endian = Endian;
+                reader.Seek(offset, SeekOrigin.Begin);
+                track.Read(reader);
+                index++;
+            }
         }
     }
 }
