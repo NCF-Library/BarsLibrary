@@ -25,7 +25,7 @@ namespace BarsLibrary.Core
                 Add(track.Meta.Name, track);
 
                 // Reset reader endian (theoretically could
-                // be switch while reading the amta)
+                // switch while reading the amta)
                 reader.Endian = Endian;
             }
 
